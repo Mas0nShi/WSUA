@@ -44,7 +44,7 @@ jobs:
         with:
           repo: 'Mas0nShi/WSUEs'
           file: 'wsues.exe'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.WSUESTOKEN }}
           
       - name: Fetch WSUEs for specific product
         shell: cmd
