@@ -27,67 +27,60 @@ runs:
   steps:
     - name: Fetch WSUEs data
       id: fetch
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const { execSync } = require('child_process');
-          const fs = require('fs');
-          const path = require('path');
-          
-          // Input parameters
-          const wsuesPath = '${{ inputs.wsues-path }}';
-          const storagePath = '${{ inputs.storage-path }}';
-          const date = '${{ inputs.date }}';
-          const fetchType = '${{ inputs.fetch-type }}';
-          const product = '${{ inputs.product }}';
-          
-          const wsuesExe = path.join(wsuesPath, 'wsues.exe');
-          
-          try {
-            console.log('🔄 Fetching WSUEs data...');
-            console.log(`  Date: ${date}`);
-            console.log(`  Type: ${fetchType}`);
-            
-            if (fetchType === 'single') {
-              if (!product) {
-                core.setFailed('❌ Product is required for single fetch');
-                return;
-              }
-              
-              const outputFile = path.join(storagePath, `${product}.json`);
-              console.log(`  Product: ${product}`);
-              console.log(`  Output: ${outputFile}`);
-              
-              // Execute WSUEs command for single product
-              execSync(`"${wsuesExe}" get --date "${date}" --product "${product}" -o "${outputFile}"`, {
-                stdio: 'inherit',
-                shell: true
-              });
-              
-              core.setOutput('output-files', outputFile);
-              console.log('✅ Single product fetch completed');
-              
-            } else {
-              console.log(`  Output directory: ${storagePath}`);
-              
-              // Execute WSUEs command for all products
-              execSync(`"${wsuesExe}" get-all --date "${date}" -o "${storagePath}"`, {
-                stdio: 'inherit',
-                shell: true
-              });
-              
-              // List generated files
-              const jsonFiles = fs.readdirSync(storagePath)
-                .filter(file => file.endsWith('.json'));
-              
-              console.log('✅ Fetch-all completed. Generated files:');
-              jsonFiles.forEach(file => {
-                console.log(`  - ${file}`);
-              });
-              
-              core.setOutput('output-files', path.join(storagePath, '*.json'));
+      shell: powershell
+      run: |
+        $wsuesExe = "${{ inputs.wsues-path }}\wsues.exe"
+        $storagePath = "${{ inputs.storage-path }}"
+        $date = "${{ inputs.date }}"
+        $fetchType = "${{ inputs.fetch-type }}"
+        
+        Write-Host "🔄 Fetching WSUEs data..."
+        Write-Host "  Date: $date"
+        Write-Host "  Type: $fetchType"
+        
+        try {
+          if ($fetchType -eq "single") {
+            $product = "${{ inputs.product }}"
+            if (-not $product) {
+              Write-Error "Product is required for single fetch"
+              exit 1
             }
             
-          } catch (error) {
-            core.setFailed(`❌ Fetch operation failed: ${error.message}`);
+            $outputFile = "$storagePath\$product.json"
+            Write-Host "  Product: $product"
+            Write-Host "  Output: $outputFile"
+            
+            & $wsuesExe get --date $date --product $product -o $outputFile
+            
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "WSUEs fetch failed with exit code $LASTEXITCODE"
+              exit 1
+            }
+            
+            echo "output-files=$outputFile" >> $env:GITHUB_OUTPUT
+            Write-Host "Single product fetch completed"
+            
+          } else {
+            Write-Host "  Output directory: $storagePath"
+            
+            & $wsuesExe get-all --date $date -o $storagePath
+            
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "WSUEs fetch-all failed with exit code $LASTEXITCODE"
+              exit 1
+            }
+            
+            # List generated files
+            $jsonFiles = Get-ChildItem -Path $storagePath -Filter "*.json"
+            Write-Host "Fetch-all completed. Generated files:"
+            foreach ($file in $jsonFiles) {
+              Write-Host "  - $($file.Name)"
+            }
+            
+            echo "output-files=$storagePath\*.json" >> $env:GITHUB_OUTPUT
           }
+          
+        } catch {
+          Write-Error "Fetch operation failed: $($_.Exception.Message)"
+          exit 1
+        }
