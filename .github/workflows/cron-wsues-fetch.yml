@@ -118,8 +118,18 @@ jobs:
           path: ${{ env.STORAGE_PATH }}\compressed\*.gz
           retention-days: 90
 
+      - name: Convert Storage Path to Unix Path
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        id: convert_path
+        shell: powershell
+        run: |
+          $storagePath = "${{ env.STORAGE_PATH }}\compressed\*.gz"
+          $unixPath = $storagePath -replace '\\', '/'
+          echo "STORAGE_PATH=$unixPath" >> $env:GITHUB_ENV
+
       - name: Create release with compressed files
-        uses: softprops/action-gh-release@v1
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.date }}
           name: WSUEs ${{ github.event.inputs.date }}
@@ -130,7 +140,7 @@ jobs:
             Each file is individually compressed with gzip to reduce size.
             
             To decompress: `gunzip filename.json.gz`
-          files: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          files: ${{ steps.convert_path.outputs.STORAGE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
   scheduled-fetch:
@@ -235,7 +245,7 @@ jobs:
             
             Write-Host "Compressed: $($_.Name) -> $($_.BaseName).json.gz"
           }
-          
+
       - name: Upload individual compressed files
         if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: actions/upload-artifact@v4
@@ -243,7 +253,16 @@ jobs:
           name: wsues-compressed-${{ steps.date.outputs.formatted_date }}
           path: ${{ env.STORAGE_PATH }}\compressed\*.gz
           retention-days: 90
-          
+
+      - name: Convert Storage Path to Unix Path
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        id: convert_path
+        shell: powershell
+        run: |
+          $storagePath = "${{ env.STORAGE_PATH }}\compressed\*.gz"
+          $unixPath = $storagePath -replace '\\', '/'
+          echo "STORAGE_PATH=$unixPath" >> $env:GITHUB_ENV
+  
       - name: Create release with compressed files
         if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: softprops/action-gh-release@v1
@@ -257,6 +276,6 @@ jobs:
             Each file is individually compressed with gzip to reduce size.
             
             To decompress: `gunzip filename.json.gz`
-          files: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          files: ${{ steps.convert_path.outputs.STORAGE_PATH }}
           token: ${{ secrets.GITHUB_TOKEN }}
         
