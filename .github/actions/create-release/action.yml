@@ -1,0 +1,54 @@
+name: 'Create Release'
+description: 'Create GitHub release with WSUEs data'
+inputs:
+  tag-name:
+    description: 'Release tag name'
+    required: true
+  release-name:
+    description: 'Release name'
+    required: true
+  date:
+    description: 'Date for release body'
+    required: true
+  files-pattern:
+    description: 'Pattern for files to include'
+    required: true
+  token:
+    description: 'GitHub token'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Convert paths for release
+      id: paths
+      shell: powershell
+      run: |
+        $filesPattern = "${{ inputs.files-pattern }}"
+        $unixPath = $filesPattern -replace '\\', '/'
+        echo "unix-pattern=$unixPath" >> $env:GITHUB_OUTPUT
+        Write-Host "📂 Files pattern: $unixPath"
+
+    - name: Create GitHub release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ inputs.tag-name }}
+        name: ${{ inputs.release-name }}
+        body: |
+          🔄 Automated WSUEs fetch for ${{ inputs.date }}
+          
+          This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
+          Each file is individually compressed with gzip to reduce download size.
+          
+          📦 **Usage:**
+          - Download the `.gz` files you need
+          - Decompress: `gunzip filename.json.gz`
+          - Use the JSON data in your applications
+          
+          🗓️ **Date:** ${{ inputs.date }}
+          📋 **Products included:** All supported Windows versions
+          🗜️ **Compression:** Individual gzip compression for optimal storage
+        files: ${{ steps.paths.outputs.unix-pattern }}
+        token: ${{ inputs.token }}
+        draft: false
+        prerelease: false

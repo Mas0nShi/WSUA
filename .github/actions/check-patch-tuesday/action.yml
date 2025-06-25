@@ -1,0 +1,56 @@
+name: 'Check Patch Tuesday'
+description: 'Check if today is the second Tuesday of the month (Patch Tuesday)'
+outputs:
+  is-patch-tuesday:
+    description: 'Whether today is Patch Tuesday'
+    value: ${{ steps.check.outputs.is-patch-tuesday }}
+  current-date:
+    description: 'Current date in YYYY-MM format'
+    value: ${{ steps.check.outputs.current-date }}
+  formatted-date:
+    description: 'Formatted date for display'
+    value: ${{ steps.check.outputs.formatted-date }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check if today is Patch Tuesday
+      id: check
+      shell: powershell
+      run: |
+        $today = Get-Date
+        $firstDayOfMonth = Get-Date -Year $today.Year -Month $today.Month -Day 1
+        
+        # Find the first Tuesday of the month
+        $firstTuesday = $firstDayOfMonth
+        while ($firstTuesday.DayOfWeek -ne [System.DayOfWeek]::Tuesday) {
+          $firstTuesday = $firstTuesday.AddDays(1)
+        }
+        
+        # The second Tuesday is 7 days after the first Tuesday (Patch Tuesday)
+        $patchTuesday = $firstTuesday.AddDays(7)
+        
+        # Check if today is Patch Tuesday
+        $isPatchTuesday = $today.Date -eq $patchTuesday.Date
+        
+        # Format dates
+        $currentDate = $today.ToString("yyyy-MM")
+        $formattedDate = $today.ToString("yyyy-MM-dd")
+        $patchTuesdayFormatted = $patchTuesday.ToString("yyyy-MM-dd")
+        
+        # Set outputs
+        echo "is-patch-tuesday=$isPatchTuesday" >> $env:GITHUB_OUTPUT
+        echo "current-date=$currentDate" >> $env:GITHUB_OUTPUT
+        echo "formatted-date=$formattedDate" >> $env:GITHUB_OUTPUT
+        
+        # Log information
+        Write-Host "📅 Date Check Results:"
+        Write-Host "  Today: $formattedDate"
+        Write-Host "  Patch Tuesday: $patchTuesdayFormatted"
+        Write-Host "  Is Patch Tuesday: $isPatchTuesday"
+        
+        if ($isPatchTuesday) {
+          Write-Host "✅ Today is Patch Tuesday! Proceeding with automated fetch."
+        } else {
+          Write-Host "ℹ️ Today is not Patch Tuesday. Scheduled fetch will be skipped."
+        }

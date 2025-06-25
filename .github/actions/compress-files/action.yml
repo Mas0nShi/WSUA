@@ -1,0 +1,71 @@
+name: 'Compress JSON Files'
+description: 'Compress JSON files with gzip'
+inputs:
+  storage-path:
+    description: 'Path to storage directory'
+    required: true
+outputs:
+  compressed-path:
+    description: 'Path to compressed files'
+    value: ${{ steps.compress.outputs.compressed-path }}
+  compressed-pattern:
+    description: 'Pattern for compressed files'
+    value: ${{ steps.compress.outputs.compressed-pattern }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Compress JSON files
+      id: compress
+      shell: powershell
+      run: |
+        $storagePath = "${{ inputs.storage-path }}"
+        $compressedPath = "$storagePath\compressed"
+        
+        Write-Host "🗜️ Compressing JSON files..."
+        
+        try {
+          # Create compressed directory
+          New-Item -ItemType Directory -Path $compressedPath -Force
+          
+          # Get all JSON files and compress each one individually
+          $jsonFiles = Get-ChildItem -Path $storagePath -Filter "*.json"
+          
+          if ($jsonFiles.Count -eq 0) {
+            Write-Warning "⚠️ No JSON files found to compress"
+            return
+          }
+          
+          foreach ($file in $jsonFiles) {
+            $inputFile = $file.FullName
+            $outputFile = Join-Path $compressedPath ($file.BaseName + ".json.gz")
+            
+            # Read file content and compress with gzip
+            $content = Get-Content -Path $inputFile -Raw -Encoding UTF8
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+            
+            # Create gzip compressed file
+            $outputStream = [System.IO.File]::Create($outputFile)
+            $gzipStream = New-Object System.IO.Compression.GzipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
+            $gzipStream.Write($bytes, 0, $bytes.Length)
+            $gzipStream.Close()
+            $outputStream.Close()
+            
+            # Calculate compression ratio
+            $originalSize = (Get-Item $inputFile).Length
+            $compressedSize = (Get-Item $outputFile).Length
+            $ratio = [math]::Round((1 - ($compressedSize / $originalSize)) * 100, 1)
+            
+            Write-Host "  ✅ $($file.Name) -> $($file.BaseName).json.gz (${ratio}% reduction)"
+          }
+          
+          # Set outputs
+          echo "compressed-path=$compressedPath" >> $env:GITHUB_OUTPUT
+          echo "compressed-pattern=$compressedPath\*.gz" >> $env:GITHUB_OUTPUT
+          
+          Write-Host "✅ Compression completed. $($jsonFiles.Count) files compressed."
+          
+        } catch {
+          Write-Error "❌ Compression failed: $($_.Exception.Message)"
+          exit 1
+        }

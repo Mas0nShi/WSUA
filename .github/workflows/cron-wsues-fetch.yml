@@ -1,15 +1,17 @@
 name: WSUEs Fetch Workflow
+
 on:
   workflow_dispatch:
     inputs:
       date:
-        description: 'Date to fetch WSUEs for'
+        description: 'Date to fetch WSUEs for (YYYY-MM format)'
         required: true
+        type: string
       fetch_type:
         description: 'Fetch type'
         type: choice
         required: true
-        default: 'single'
+        default: 'all'
         options:
           - 'single'
           - 'all'
@@ -27,255 +29,126 @@ on:
           - 'Windows Server 2022'
           - 'Windows Server 2025'
   schedule:
-    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC (11 AM US Eastern Time)
+    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC
 
 permissions:
   contents: write
-  
 jobs:
   manual-fetch:
-    environment: WSUEs
     name: Manual WSUEs Fetch
     runs-on: windows-latest
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    env:
-      WSUES_PATH: ${{ github.workspace }}\bin
-      STORAGE_PATH: ${{ github.workspace }}\storage
+    if: github.event_name == 'workflow_dispatch'
+    environment: WSUEs
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Create storage directory
-        shell: cmd
-        run: mkdir "%STORAGE_PATH%"
-        
-      - name: Download WSUEs
-        uses: dsaltares/fetch-gh-release-asset@master
+      - name: Setup WSUEs
+        id: setup
+        uses: ./.github/actions/setup-wsues
         with:
-          repo: 'Mas0nShi/WSUEs'
-          file: 'wsues.zip'
           token: ${{ secrets.WSUESTOKEN }}
-
-      - name: Unzip WSUEs
-        shell: powershell
-        run: |
-          $zipPath = "${{ github.workspace }}\wsues.zip"
-          $extractPath = "${{ env.WSUES_PATH }}"
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          workspace-path: ${{ github.workspace }}
           
-      - name: Fetch WSUEs for specific product
-        if: ${{ github.event.inputs.fetch_type == 'single' }}
-        shell: cmd
-        run: |
-          ${{ env.WSUES_PATH }}\wsues.exe get --date "${{ github.event.inputs.date }}" --product "${{ github.event.inputs.product }}" -o "${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json"
+      - name: Fetch WSUEs data
+        id: fetch
+        uses: ./.github/actions/fetch-wsues-data
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
+          date: ${{ github.event.inputs.date }}
+          fetch-type: ${{ github.event.inputs.fetch_type }}
+          product: ${{ github.event.inputs.product }}
           
-      - name: Fetch all WSUEs
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
-        shell: cmd
-        run: |
-          ${{ env.WSUES_PATH }}\wsues.exe get-all --date "${{ github.event.inputs.date }}" -o "${{ env.STORAGE_PATH }}"
+      - name: Compress files (for all products)
+        id: compress
+        if: github.event.inputs.fetch_type == 'all'
+        uses: ./.github/actions/compress-files
+        with:
+          storage-path: ${{ steps.setup.outputs.storage-path }}
           
-      - name: Compress individual files with gzip (for get-all)
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
-        shell: powershell
-        run: |
-          # Create compressed directory
-          $compressedPath = "${{ env.STORAGE_PATH }}\compressed"
-          New-Item -ItemType Directory -Path $compressedPath -Force
-          
-          # Get all JSON files and compress each one individually
-          Get-ChildItem -Path "${{ env.STORAGE_PATH }}" -Filter "*.json" | ForEach-Object {
-            $inputFile = $_.FullName
-            $outputFile = Join-Path $compressedPath ($_.BaseName + ".json.gz")
-            
-            # Read file content and compress with gzip
-            $content = Get-Content -Path $inputFile -Raw -Encoding UTF8
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
-            
-            # Create gzip compressed file
-            $outputStream = [System.IO.File]::Create($outputFile)
-            $gzipStream = New-Object System.IO.Compression.GzipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
-            $gzipStream.Write($bytes, 0, $bytes.Length)
-            $gzipStream.Close()
-            $outputStream.Close()
-            
-            Write-Host "Compressed: $($_.Name) -> $($_.BaseName).json.gz"
-          }
-          
-      - name: Upload artifact (single product)
-        if: ${{ github.event.inputs.fetch_type == 'single' }}
+      - name: Upload artifacts (single product)
+        if: github.event.inputs.fetch_type == 'single'
         uses: actions/upload-artifact@v4
         with:
           name: wsues-${{ github.event.inputs.product }}-${{ github.event.inputs.date }}
-          path: ${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json
+          path: ${{ steps.fetch.outputs.output-files }}
           retention-days: 30
           
-      - name: Upload artifact (all products - compressed)
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
+      - name: Upload artifacts (all products)
+        if: github.event.inputs.fetch_type == 'all'
         uses: actions/upload-artifact@v4
         with:
           name: wsues-all-${{ github.event.inputs.date }}
-          path: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          path: ${{ steps.compress.outputs.compressed-pattern }}
           retention-days: 90
-
-      - name: Convert Storage Path to Unix Path
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
-        id: convert_path
-        shell: powershell
-        run: |
-          $storagePath = "${{ env.STORAGE_PATH }}\compressed\*.gz"
-          $unixPath = $storagePath -replace '\\', '/'
-          echo "STORAGE_PATH=$unixPath" >> $env:GITHUB_ENV
-
-      - name: Create release with compressed files
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
-        uses: softprops/action-gh-release@v2
+          
+      - name: Create release (for all products)
+        if: github.event.inputs.fetch_type == 'all'
+        uses: ./.github/actions/create-release
         with:
-          tag_name: ${{ github.event.inputs.date }}
-          name: WSUEs ${{ github.event.inputs.date }}
-          body: |
-            Automated WSUEs fetch for ${{ github.event.inputs.date }}
-            
-            This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
-            Each file is individually compressed with gzip to reduce size.
-            
-            To decompress: `gunzip filename.json.gz`
-          files: ${{ steps.convert_path.outputs.STORAGE_PATH }}
+          tag-name: ${{ github.event.inputs.date }}
+          release-name: WSUEs ${{ github.event.inputs.date }}
+          date: ${{ github.event.inputs.date }}
+          files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
   scheduled-fetch:
-    environment: WSUEs
-    name: Scheduled WSUEs Fetch
+    name: Scheduled WSUEs Fetch (Patch Tuesday)
     runs-on: windows-latest
-    if: ${{ github.event_name == 'schedule' }}
-    env:
-      WSUES_PATH: ${{ github.workspace }}\bin
-      STORAGE_PATH: ${{ github.workspace }}\storage
+    if: github.event_name == 'schedule'
+    environment: WSUEs
+    
     steps:
-      - name: Check Patch Tuesday
-        id: check_date
-        shell: powershell
-        run: |
-          $today = Get-Date
-          $firstDayOfMonth = Get-Date -Year $today.Year -Month $today.Month -Day 1
-          $firstTuesday = $firstDayOfMonth
-          
-          # Find the first Tuesday of the month
-          while ($firstTuesday.DayOfWeek -ne [System.DayOfWeek]::Tuesday) {
-            $firstTuesday = $firstTuesday.AddDays(1)
-          }
-          
-          # The second Tuesday is 7 days after the first Tuesday
-          $secondTuesday = $firstTuesday.AddDays(7)
-          
-          # Check if today is the second Tuesday
-          $isSecondTuesday = $today.Date -eq $secondTuesday.Date
-          
-          echo "is_second_tuesday=$isSecondTuesday" >> $env:GITHUB_OUTPUT
-          echo "Today: $($today.ToString('yyyy-MM-dd'))"
-          echo "Second Tuesday: $($secondTuesday.ToString('yyyy-MM-dd'))"
-          echo "Is Second Tuesday: $isSecondTuesday"
-          
+      - name: Check if today is Patch Tuesday
+        id: patch-tuesday
+        uses: ./.github/actions/check-patch-tuesday
+        
       - name: Checkout repository
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: actions/checkout@v4
         
-      - name: Create storage directory
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        shell: cmd
-        run: mkdir "%STORAGE_PATH%"
-        
-      - name: Download WSUEs
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        uses: dsaltares/fetch-gh-release-asset@master
+      - name: Setup WSUEs
+        id: setup
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/setup-wsues
         with:
-          repo: 'Mas0nShi/WSUEs'
-          file: 'wsues.zip'
           token: ${{ secrets.WSUESTOKEN }}
-
-      - name: Unzip WSUEs
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        shell: powershell
-        run: |
-          $zipPath = "${{ github.workspace }}\wsues.zip"
-          $extractPath = "${{ env.WSUES_PATH }}"
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          workspace-path: ${{ github.workspace }}
           
-      - name: Get current date
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        id: date
-        shell: powershell
-        run: |
-          $date = Get-Date
-          $year = $date.Year
-          $month = $date.Month.ToString("00")
-          $formattedDate = "${year}-${month}"
-          echo "formatted_date=${formattedDate}" >> $env:GITHUB_OUTPUT
-          echo "tag=${formattedDate}" >> $env:GITHUB_OUTPUT
+      - name: Fetch all WSUEs data
+        id: fetch
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/fetch-wsues-data
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
+          date: ${{ steps.patch-tuesday.outputs.current-date }}
+          fetch-type: 'all'
           
-      - name: Fetch all WSUEs
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        shell: cmd
-        run: |
-          ${{ env.WSUES_PATH }}\wsues.exe get-all --date "${{ steps.date.outputs.formatted_date }}" -o "${{ env.STORAGE_PATH }}"
+      - name: Compress files
+        id: compress
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/compress-files
+        with:
+          storage-path: ${{ steps.setup.outputs.storage-path }}
           
-      - name: Compress individual files with gzip
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        shell: powershell
-        run: |
-          # Create compressed directory
-          $compressedPath = "${{ env.STORAGE_PATH }}\compressed"
-          New-Item -ItemType Directory -Path $compressedPath -Force
-          
-          # Get all JSON files and compress each one individually
-          Get-ChildItem -Path "${{ env.STORAGE_PATH }}" -Filter "*.json" | ForEach-Object {
-            $inputFile = $_.FullName
-            $outputFile = Join-Path $compressedPath ($_.BaseName + ".json.gz")
-            
-            # Read file content and compress with gzip
-            $content = Get-Content -Path $inputFile -Raw -Encoding UTF8
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
-            
-            # Create gzip compressed file
-            $outputStream = [System.IO.File]::Create($outputFile)
-            $gzipStream = New-Object System.IO.Compression.GzipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
-            $gzipStream.Write($bytes, 0, $bytes.Length)
-            $gzipStream.Close()
-            $outputStream.Close()
-            
-            Write-Host "Compressed: $($_.Name) -> $($_.BaseName).json.gz"
-          }
-
-      - name: Upload individual compressed files
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
+      - name: Upload artifacts
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: actions/upload-artifact@v4
         with:
-          name: wsues-compressed-${{ steps.date.outputs.formatted_date }}
-          path: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          name: wsues-scheduled-${{ steps.patch-tuesday.outputs.current-date }}
+          path: ${{ steps.compress.outputs.compressed-pattern }}
           retention-days: 90
-
-      - name: Convert Storage Path to Unix Path
-        if: ${{ github.event.inputs.fetch_type == 'all' }}
-        id: convert_path
-        shell: powershell
-        run: |
-          $storagePath = "${{ env.STORAGE_PATH }}\compressed\*.gz"
-          $unixPath = $storagePath -replace '\\', '/'
-          echo "STORAGE_PATH=$unixPath" >> $env:GITHUB_ENV
-  
-      - name: Create release with compressed files
-        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
-        uses: softprops/action-gh-release@v1
+          
+      - name: Create release
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/create-release
         with:
-          tag_name: ${{ steps.date.outputs.tag }}
-          name: WSUEs ${{ steps.date.outputs.formatted_date }}
-          body: |
-            Automated WSUEs fetch for ${{ steps.date.outputs.formatted_date }}
-            
-            This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
-            Each file is individually compressed with gzip to reduce size.
-            
-            To decompress: `gunzip filename.json.gz`
-          files: ${{ steps.convert_path.outputs.STORAGE_PATH }}
+          tag-name: ${{ steps.patch-tuesday.outputs.current-date }}
+          release-name: WSUEs ${{ steps.patch-tuesday.outputs.current-date }}
+          date: ${{ steps.patch-tuesday.outputs.current-date }}
+          files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
           token: ${{ secrets.GITHUB_TOKEN }}
         
