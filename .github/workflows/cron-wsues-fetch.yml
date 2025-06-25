@@ -118,6 +118,21 @@ jobs:
           path: ${{ env.STORAGE_PATH }}\compressed\*.gz
           retention-days: 90
 
+      - name: Create release with compressed files
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.date }}
+          name: WSUEs ${{ github.event.inputs.date }}
+          body: |
+            Automated WSUEs fetch for ${{ github.event.inputs.date }}
+            
+            This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
+            Each file is individually compressed with gzip to reduce size.
+            
+            To decompress: `gunzip filename.json.gz`
+          files: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   scheduled-fetch:
     environment: WSUEs
     name: Scheduled WSUEs Fetch
