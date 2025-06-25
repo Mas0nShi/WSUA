@@ -7,8 +7,6 @@ inputs:
   storage-path:
     description: 'Path to storage directory'
     required: true
-outputs:
-  
 
 runs:
   using: 'composite'
