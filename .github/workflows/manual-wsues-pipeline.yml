@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       date:
-        description: 'Date to fetch WSUEs for (YYYY-MM format)'
+        description: 'Date (YYYY-MM)'
         required: true
         type: string
       fetch_type:
-        description: 'Fetch type'
+        description: 'Type'
         type: choice
         required: true
         default: 'single'
@@ -15,7 +15,7 @@ on:
           - 'single'
           - 'all'
       product:
-        description: 'Product to fetch WSUEs for (only for single fetch)'
+        description: 'Product'
         type: choice
         required: false
         options:
