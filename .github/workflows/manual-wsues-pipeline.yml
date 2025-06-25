@@ -1,5 +1,4 @@
-name: WSUEs Fetch Workflow
-
+name: Manual WSUEs Pipeline
 on:
   workflow_dispatch:
     inputs:
@@ -11,7 +10,7 @@ on:
         description: 'Fetch type'
         type: choice
         required: true
-        default: 'all'
+        default: 'single'
         options:
           - 'single'
           - 'all'
@@ -28,16 +27,13 @@ on:
           - 'Windows Server 2019'
           - 'Windows Server 2022'
           - 'Windows Server 2025'
-  schedule:
-    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC
 
 permissions:
   contents: write
 jobs:
   manual-fetch:
     name: Manual WSUEs Fetch
-    runs-on: windows-2025 # todo: cannot use 2022 or latest, it's has issue when use wsues.
-    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025 # !important
     environment: WSUEs
     
     steps:
@@ -61,14 +57,14 @@ jobs:
           fetch-type: ${{ github.event.inputs.fetch_type }}
           product: ${{ github.event.inputs.product }}
           
-      - name: Compress files (for all products)
+      - name: Compress files
         id: compress
         if: github.event.inputs.fetch_type == 'all'
         uses: ./.github/actions/compress-files
         with:
           storage-path: ${{ steps.setup.outputs.storage-path }}
           
-      - name: Upload artifacts (single product)
+      - name: Upload artifacts (single)
         if: github.event.inputs.fetch_type == 'single'
         uses: actions/upload-artifact@v4
         with:
@@ -76,7 +72,7 @@ jobs:
           path: ${{ steps.fetch.outputs.output-files }}
           retention-days: 30
           
-      - name: Upload artifacts (all products)
+      - name: Upload artifacts (all)
         if: github.event.inputs.fetch_type == 'all'
         uses: actions/upload-artifact@v4
         with:
@@ -84,7 +80,7 @@ jobs:
           path: ${{ steps.compress.outputs.compressed-pattern }}
           retention-days: 90
           
-      - name: Create release (for all products)
+      - name: Create release (all)
         if: github.event.inputs.fetch_type == 'all'
         uses: ./.github/actions/create-release
         with:
@@ -93,62 +89,3 @@ jobs:
           date: ${{ github.event.inputs.date }}
           files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
           token: ${{ secrets.GITHUB_TOKEN }}
-
-  scheduled-fetch:
-    name: Scheduled WSUEs Fetch (Patch Tuesday)
-    runs-on: windows-latest
-    if: github.event_name == 'schedule'
-    environment: WSUEs
-    
-    steps:
-      - name: Check if today is Patch Tuesday
-        id: patch-tuesday
-        uses: ./.github/actions/check-patch-tuesday
-        
-      - name: Checkout repository
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: actions/checkout@v4
-        
-      - name: Setup WSUEs
-        id: setup
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: ./.github/actions/setup-wsues
-        with:
-          token: ${{ secrets.WSUESTOKEN }}
-          workspace-path: ${{ github.workspace }}
-          
-      - name: Fetch all WSUEs data
-        id: fetch
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: ./.github/actions/fetch-wsues-data
-        with:
-          wsues-path: ${{ steps.setup.outputs.wsues-path }}
-          storage-path: ${{ steps.setup.outputs.storage-path }}
-          date: ${{ steps.patch-tuesday.outputs.current-date }}
-          fetch-type: 'all'
-          
-      - name: Compress files
-        id: compress
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: ./.github/actions/compress-files
-        with:
-          storage-path: ${{ steps.setup.outputs.storage-path }}
-          
-      - name: Upload artifacts
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: actions/upload-artifact@v4
-        with:
-          name: wsues-scheduled-${{ steps.patch-tuesday.outputs.current-date }}
-          path: ${{ steps.compress.outputs.compressed-pattern }}
-          retention-days: 90
-          
-      - name: Create release
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: ./.github/actions/create-release
-        with:
-          tag-name: ${{ steps.patch-tuesday.outputs.current-date }}
-          release-name: WSUEs ${{ steps.patch-tuesday.outputs.current-date }}
-          date: ${{ steps.patch-tuesday.outputs.current-date }}
-          files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-        

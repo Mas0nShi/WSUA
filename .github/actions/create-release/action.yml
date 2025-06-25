@@ -27,7 +27,6 @@ runs:
         $filesPattern = "${{ inputs.files-pattern }}"
         $unixPath = $filesPattern -replace '\\', '/'
         echo "unix-pattern=$unixPath" >> $env:GITHUB_OUTPUT
-        Write-Host "📂 Files pattern: $unixPath"
 
     - name: Create GitHub release
       uses: softprops/action-gh-release@v2

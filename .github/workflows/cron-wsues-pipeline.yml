@@ -1,0 +1,65 @@
+name: Cron WSUEs Pipeline
+on:
+  schedule:
+    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC
+
+permissions:
+  contents: write
+jobs:
+  scheduled-fetch:
+    name: Scheduled WSUEs
+    runs-on: windows-2025 # !important
+    environment: WSUEs
+    
+    steps:
+      - name: Check if today is Patch Tuesday
+        id: patch-tuesday
+        uses: ./.github/actions/check-patch-tuesday
+        
+      - name: Checkout repository
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: actions/checkout@v4
+        
+      - name: Setup WSUEs
+        id: setup
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/setup-wsues
+        with:
+          token: ${{ secrets.WSUESTOKEN }}
+          workspace-path: ${{ github.workspace }}
+          
+      - name: Fetch all WSUEs data
+        id: fetch
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/fetch-wsues-data
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
+          date: ${{ steps.patch-tuesday.outputs.current-date }}
+          fetch-type: 'all'
+          
+      - name: Compress files
+        id: compress
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/compress-files
+        with:
+          storage-path: ${{ steps.setup.outputs.storage-path }}
+          
+      - name: Upload artifacts
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-scheduled-${{ steps.patch-tuesday.outputs.current-date }}
+          path: ${{ steps.compress.outputs.compressed-pattern }}
+          retention-days: 90
+          
+      - name: Create release
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/create-release
+        with:
+          tag-name: ${{ steps.patch-tuesday.outputs.current-date }}
+          release-name: WSUEs ${{ steps.patch-tuesday.outputs.current-date }}
+          date: ${{ steps.patch-tuesday.outputs.current-date }}
+          files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+        

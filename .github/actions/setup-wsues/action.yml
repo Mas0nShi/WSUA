@@ -34,7 +34,7 @@ runs:
         echo "wsues-path=$wsuesPath" >> $env:GITHUB_OUTPUT
         echo "storage-path=$storagePath" >> $env:GITHUB_OUTPUT
         
-        Write-Host "✅ Created directories:"
+        Write-Host "Created directories:"
         Write-Host "  WSUEs: $wsuesPath"
         Write-Host "  Storage: $storagePath"
 
@@ -53,17 +53,17 @@ runs:
         
         try {
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-          Write-Host "✅ WSUEs extracted successfully to $extractPath"
+          Write-Host "WSUEs extracted successfully to $extractPath"
           
           # Verify executable exists
           $exePath = "$extractPath\wsues.exe"
           if (Test-Path $exePath) {
-            Write-Host "✅ WSUEs executable found: $exePath"
+            Write-Host "WSUEs executable found: $exePath"
           } else {
-            Write-Error "❌ WSUEs executable not found!"
+            Write-Error "WSUEs executable not found!"
             exit 1
           }
         } catch {
-          Write-Error "❌ Failed to extract WSUEs: $($_.Exception.Message)"
+          Write-Error "Failed to extract WSUEs: $($_.Exception.Message)"
           exit 1
         }

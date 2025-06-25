@@ -22,7 +22,7 @@ runs:
         $storagePath = "${{ inputs.storage-path }}"
         $compressedPath = "$storagePath\compressed"
         
-        Write-Host "🗜️ Compressing JSON files..."
+        Write-Host "Compressing JSON files..."
         
         try {
           # Create compressed directory
@@ -32,7 +32,7 @@ runs:
           $jsonFiles = Get-ChildItem -Path $storagePath -Filter "*.json"
           
           if ($jsonFiles.Count -eq 0) {
-            Write-Warning "⚠️ No JSON files found to compress"
+            Write-Warning "No JSON files found to compress"
             return
           }
           
@@ -56,16 +56,16 @@ runs:
             $compressedSize = (Get-Item $outputFile).Length
             $ratio = [math]::Round((1 - ($compressedSize / $originalSize)) * 100, 1)
             
-            Write-Host "  ✅ $($file.Name) -> $($file.BaseName).json.gz (${ratio}% reduction)"
+            Write-Host "- $($file.Name) -> $($file.BaseName).json.gz (${ratio}% reduction)"
           }
           
           # Set outputs
           echo "compressed-path=$compressedPath" >> $env:GITHUB_OUTPUT
           echo "compressed-pattern=$compressedPath\*.gz" >> $env:GITHUB_OUTPUT
           
-          Write-Host "✅ Compression completed. $($jsonFiles.Count) files compressed."
+          Write-Host "Compression completed. $($jsonFiles.Count) files compressed."
           
         } catch {
-          Write-Error "❌ Compression failed: $($_.Exception.Message)"
+          Write-Error "Compression failed: $($_.Exception.Message)"
           exit 1
         }

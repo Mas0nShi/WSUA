@@ -44,13 +44,8 @@ runs:
         echo "formatted-date=$formattedDate" >> $env:GITHUB_OUTPUT
         
         # Log information
-        Write-Host "📅 Date Check Results:"
+        Write-Host "Date Check Results:"
         Write-Host "  Today: $formattedDate"
         Write-Host "  Patch Tuesday: $patchTuesdayFormatted"
         Write-Host "  Is Patch Tuesday: $isPatchTuesday"
         
-        if ($isPatchTuesday) {
-          Write-Host "✅ Today is Patch Tuesday! Proceeding with automated fetch."
-        } else {
-          Write-Host "ℹ️ Today is not Patch Tuesday. Scheduled fetch will be skipped."
-        }
