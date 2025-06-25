@@ -1,0 +1,145 @@
+name: WSUEs Fetch Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to fetch WSUEs for'
+        required: true
+      product:
+        description: 'Product to fetch WSUEs for'
+        type: choice
+        required: true
+        options:
+          - 'Windows 10 21H2'
+          - 'Windows 10 22H2'
+          - 'Windows 11 22H2'
+          - 'Windows 11 23H2'
+          - 'Windows 11 24H2'
+          - 'Windows Server 2019'
+          - 'Windows Server 2022'
+          - 'Windows Server 2025'
+  schedule:
+    - cron: '0 10 * * 2' # Every Tuesday at 10:00 UTC
+
+permissions:
+  contents: write
+  
+jobs:
+  manual-fetch:
+    name: Manual WSUEs Fetch
+    runs-on: windows-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    env:
+      STORAGE_PATH: ${{ github.workspace }}\storage
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Create storage directory
+        shell: cmd
+        run: mkdir "%STORAGE_PATH%"
+        
+      - name: Download WSUEs
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          repo: 'Mas0nShi/WSUEs'
+          file: 'wsues.exe'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Fetch WSUEs for specific product
+        shell: cmd
+        run: |
+          .\wsues.exe get --date "${{ github.event.inputs.date }}" --product "${{ github.event.inputs.product }}" -o "%STORAGE_PATH%\${{ github.event.inputs.product }}.json"
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-${{ github.event.inputs.product }}-${{ github.event.inputs.date }}
+          path: ${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json
+          retention-days: 30
+
+  scheduled-fetch:
+    name: Scheduled WSUEs Fetch
+    runs-on: windows-latest
+    if: ${{ github.event_name == 'schedule' }}
+    env:
+      STORAGE_PATH: ${{ github.workspace }}\storage
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Create storage directory
+        shell: cmd
+        run: mkdir "%STORAGE_PATH%"
+        
+      - name: Download WSUEs
+        uses: dsaltares/fetch-gh-release-asset@master
+        with:
+          repo: 'Mas0nShi/WSUEs'
+          file: 'wsues.exe'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Get current date
+        id: date
+        shell: powershell
+        run: |
+          $date = Get-Date
+          $year = $date.Year
+          $month = $date.Month.ToString("00")
+          $formattedDate = "${year}-${month}"
+          echo "formatted_date=${formattedDate}" >> $env:GITHUB_OUTPUT
+          echo "tag=${formattedDate}" >> $env:GITHUB_OUTPUT
+          
+      - name: Fetch all WSUEs
+        shell: cmd
+        run: |
+          .\wsues.exe get-all --date "${{ steps.date.outputs.formatted_date }}" -o "%STORAGE_PATH%"
+          
+      - name: Compress individual files with gzip
+        shell: powershell
+        run: |
+          # Create compressed directory
+          $compressedPath = "${{ env.STORAGE_PATH }}\compressed"
+          New-Item -ItemType Directory -Path $compressedPath -Force
+          
+          # Get all JSON files and compress each one individually
+          Get-ChildItem -Path "${{ env.STORAGE_PATH }}" -Filter "*.json" | ForEach-Object {
+            $inputFile = $_.FullName
+            $outputFile = Join-Path $compressedPath ($_.BaseName + ".json.gz")
+            
+            # Read file content and compress with gzip
+            $content = Get-Content -Path $inputFile -Raw -Encoding UTF8
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+            
+            # Create gzip compressed file
+            $outputStream = [System.IO.File]::Create($outputFile)
+            $gzipStream = New-Object System.IO.Compression.GzipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
+            $gzipStream.Write($bytes, 0, $bytes.Length)
+            $gzipStream.Close()
+            $outputStream.Close()
+            
+            Write-Host "Compressed: $($_.Name) -> $($_.BaseName).json.gz"
+          }
+          
+      - name: Upload individual compressed files
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-compressed-${{ steps.date.outputs.formatted_date }}
+          path: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          retention-days: 90
+          
+      - name: Create release with compressed files
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.date.outputs.tag }}
+          name: WSUEs ${{ steps.date.outputs.formatted_date }}
+          body: |
+            Automated WSUEs fetch for ${{ steps.date.outputs.formatted_date }}
+            
+            This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
+            Each file is individually compressed with gzip to reduce size.
+            
+            To decompress: `gunzip filename.json.gz`
+          files: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          token: ${{ secrets.GITHUB_TOKEN }}
+        
