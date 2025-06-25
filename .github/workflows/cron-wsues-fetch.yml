@@ -26,6 +26,7 @@ permissions:
   
 jobs:
   manual-fetch:
+    environment: WSUEs
     name: Manual WSUEs Fetch
     runs-on: windows-latest
     if: ${{ github.event_name == 'workflow_dispatch' }}
