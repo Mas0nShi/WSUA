@@ -1,0 +1,26 @@
+name: 'Create Quick Index'
+description: 'Create a quick index of WSUEs data by compressing JSON files'
+inputs:
+  wsues-path:
+    description: 'Path to WSUEs executable'
+    required: true
+  storage-path:
+    description: 'Path to storage directory'
+    required: true
+outputs:
+  
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Create Quick Index
+      id: create-quick-index
+      shell: powershell
+      run: |
+        # Run the wsues.exe tool to create a quick index
+        $wsuesExe = "${{ inputs.wsues-path }}\wsues.exe"
+        $storagePath = "${{ inputs.storage-path }}"
+        $outputFile = "$storagePath\index.json"
+        Write-Host "Creating quick index at $outputFile"
+        & $wsuesExe build-quick-index -i $storagePath -o $outputFile
+        

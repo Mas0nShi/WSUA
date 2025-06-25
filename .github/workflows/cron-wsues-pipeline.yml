@@ -37,6 +37,13 @@ jobs:
           storage-path: ${{ steps.setup.outputs.storage-path }}
           date: ${{ steps.patch-tuesday.outputs.current-date }}
           fetch-type: 'all'
+      
+      - name: Create Quick Index
+        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
+        uses: ./.github/actions/create-quick-index
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
           
       - name: Compress files
         id: compress

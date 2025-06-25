@@ -56,6 +56,13 @@ jobs:
           date: ${{ github.event.inputs.date }}
           fetch-type: ${{ github.event.inputs.fetch_type }}
           product: ${{ github.event.inputs.product }}
+
+      - name: Create Quick Index
+        if: github.event.inputs.fetch_type == 'all'
+        uses: ./.github/actions/create-quick-index
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
           
       - name: Compress files
         id: compress
