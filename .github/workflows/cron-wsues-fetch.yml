@@ -27,7 +27,7 @@ on:
           - 'Windows Server 2022'
           - 'Windows Server 2025'
   schedule:
-    - cron: '0 10 * * 2' # Every Tuesday at 10:00 UTC
+    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC (11 AM US Eastern Time)
 
 permissions:
   contents: write
@@ -142,14 +142,41 @@ jobs:
       WSUES_PATH: ${{ github.workspace }}\bin
       STORAGE_PATH: ${{ github.workspace }}\storage
     steps:
+      - name: Check Patch Tuesday
+        id: check_date
+        shell: powershell
+        run: |
+          $today = Get-Date
+          $firstDayOfMonth = Get-Date -Year $today.Year -Month $today.Month -Day 1
+          $firstTuesday = $firstDayOfMonth
+          
+          # Find the first Tuesday of the month
+          while ($firstTuesday.DayOfWeek -ne [System.DayOfWeek]::Tuesday) {
+            $firstTuesday = $firstTuesday.AddDays(1)
+          }
+          
+          # The second Tuesday is 7 days after the first Tuesday
+          $secondTuesday = $firstTuesday.AddDays(7)
+          
+          # Check if today is the second Tuesday
+          $isSecondTuesday = $today.Date -eq $secondTuesday.Date
+          
+          echo "is_second_tuesday=$isSecondTuesday" >> $env:GITHUB_OUTPUT
+          echo "Today: $($today.ToString('yyyy-MM-dd'))"
+          echo "Second Tuesday: $($secondTuesday.ToString('yyyy-MM-dd'))"
+          echo "Is Second Tuesday: $isSecondTuesday"
+          
       - name: Checkout repository
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: actions/checkout@v4
         
       - name: Create storage directory
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         shell: cmd
         run: mkdir "%STORAGE_PATH%"
         
       - name: Download WSUEs
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           repo: 'Mas0nShi/WSUEs'
@@ -157,6 +184,7 @@ jobs:
           token: ${{ secrets.WSUESTOKEN }}
 
       - name: Unzip WSUEs
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         shell: powershell
         run: |
           $zipPath = "${{ github.workspace }}\wsues.zip"
@@ -164,6 +192,7 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           
       - name: Get current date
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         id: date
         shell: powershell
         run: |
@@ -175,11 +204,13 @@ jobs:
           echo "tag=${formattedDate}" >> $env:GITHUB_OUTPUT
           
       - name: Fetch all WSUEs
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         shell: cmd
         run: |
           ${{ env.WSUES_PATH }}\wsues.exe get-all --date "${{ steps.date.outputs.formatted_date }}" -o "${{ env.STORAGE_PATH }}"
           
       - name: Compress individual files with gzip
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         shell: powershell
         run: |
           # Create compressed directory
@@ -206,6 +237,7 @@ jobs:
           }
           
       - name: Upload individual compressed files
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: actions/upload-artifact@v4
         with:
           name: wsues-compressed-${{ steps.date.outputs.formatted_date }}
@@ -213,6 +245,7 @@ jobs:
           retention-days: 90
           
       - name: Create release with compressed files
+        if: ${{ steps.check_date.outputs.is_second_tuesday == 'True' }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.date.outputs.tag }}
