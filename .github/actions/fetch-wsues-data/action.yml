@@ -34,7 +34,7 @@ runs:
         $date = "${{ inputs.date }}"
         $fetchType = "${{ inputs.fetch-type }}"
         
-        Write-Host "🔄 Fetching WSUEs data..."
+        Write-Host "Fetching WSUEs data..."
         Write-Host "  Date: $date"
         Write-Host "  Type: $fetchType"
         
