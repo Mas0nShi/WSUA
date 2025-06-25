@@ -36,7 +36,7 @@ permissions:
 jobs:
   manual-fetch:
     name: Manual WSUEs Fetch
-    runs-on: windows-latest
+    runs-on: windows-2025 # todo: cannot use 2022 or latest, it's has issue when use wsues.
     if: github.event_name == 'workflow_dispatch'
     environment: WSUEs
     
