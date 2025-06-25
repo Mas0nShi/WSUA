@@ -5,10 +5,18 @@ on:
       date:
         description: 'Date to fetch WSUEs for'
         required: true
-      product:
-        description: 'Product to fetch WSUEs for'
+      fetch_type:
+        description: 'Fetch type'
         type: choice
         required: true
+        default: 'single'
+        options:
+          - 'single'
+          - 'all'
+      product:
+        description: 'Product to fetch WSUEs for (only for single fetch)'
+        type: choice
+        required: false
         options:
           - 'Windows 10 21H2'
           - 'Windows 10 22H2'
@@ -56,16 +64,59 @@ jobs:
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           
       - name: Fetch WSUEs for specific product
+        if: ${{ github.event.inputs.fetch_type == 'single' }}
         shell: cmd
         run: |
           ${{ env.WSUES_PATH }}\wsues.exe get --date "${{ github.event.inputs.date }}" --product "${{ github.event.inputs.product }}" -o "${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json"
           
-      - name: Upload artifact
+      - name: Fetch all WSUEs
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        shell: cmd
+        run: |
+          ${{ env.WSUES_PATH }}\wsues.exe get-all --date "${{ github.event.inputs.date }}" -o "${{ env.STORAGE_PATH }}"
+          
+      - name: Compress individual files with gzip (for get-all)
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        shell: powershell
+        run: |
+          # Create compressed directory
+          $compressedPath = "${{ env.STORAGE_PATH }}\compressed"
+          New-Item -ItemType Directory -Path $compressedPath -Force
+          
+          # Get all JSON files and compress each one individually
+          Get-ChildItem -Path "${{ env.STORAGE_PATH }}" -Filter "*.json" | ForEach-Object {
+            $inputFile = $_.FullName
+            $outputFile = Join-Path $compressedPath ($_.BaseName + ".json.gz")
+            
+            # Read file content and compress with gzip
+            $content = Get-Content -Path $inputFile -Raw -Encoding UTF8
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($content)
+            
+            # Create gzip compressed file
+            $outputStream = [System.IO.File]::Create($outputFile)
+            $gzipStream = New-Object System.IO.Compression.GzipStream($outputStream, [System.IO.Compression.CompressionMode]::Compress)
+            $gzipStream.Write($bytes, 0, $bytes.Length)
+            $gzipStream.Close()
+            $outputStream.Close()
+            
+            Write-Host "Compressed: $($_.Name) -> $($_.BaseName).json.gz"
+          }
+          
+      - name: Upload artifact (single product)
+        if: ${{ github.event.inputs.fetch_type == 'single' }}
         uses: actions/upload-artifact@v4
         with:
           name: wsues-${{ github.event.inputs.product }}-${{ github.event.inputs.date }}
           path: ${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json
           retention-days: 30
+          
+      - name: Upload artifact (all products - compressed)
+        if: ${{ github.event.inputs.fetch_type == 'all' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-all-${{ github.event.inputs.date }}
+          path: ${{ env.STORAGE_PATH }}\compressed\*.gz
+          retention-days: 90
 
   scheduled-fetch:
     environment: WSUEs
