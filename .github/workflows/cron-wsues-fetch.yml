@@ -31,6 +31,7 @@ jobs:
     runs-on: windows-latest
     if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
+      WSUES_PATH: ${{ github.workspace }}\bin
       STORAGE_PATH: ${{ github.workspace }}\storage
     steps:
       - name: Checkout repository
@@ -44,13 +45,20 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           repo: 'Mas0nShi/WSUEs'
-          file: 'wsues.exe'
+          file: 'wsues.zip'
           token: ${{ secrets.WSUESTOKEN }}
+
+      - name: Unzip WSUEs
+        shell: powershell
+        run: |
+          $zipPath = "${{ github.workspace }}\wsues.zip"
+          $extractPath = "${{ env.WSUES_PATH }}"
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           
       - name: Fetch WSUEs for specific product
         shell: cmd
         run: |
-          .\wsues.exe get --date "${{ github.event.inputs.date }}" --product "${{ github.event.inputs.product }}" -o "%STORAGE_PATH%\${{ github.event.inputs.product }}.json"
+          ${{ env.WSUES_PATH }}\wsues.exe get --date "${{ github.event.inputs.date }}" --product "${{ github.event.inputs.product }}" -o "${{ env.STORAGE_PATH }}\${{ github.event.inputs.product }}.json"
           
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -60,10 +68,12 @@ jobs:
           retention-days: 30
 
   scheduled-fetch:
+    environment: WSUEs
     name: Scheduled WSUEs Fetch
     runs-on: windows-latest
     if: ${{ github.event_name == 'schedule' }}
     env:
+      WSUES_PATH: ${{ github.workspace }}\bin
       STORAGE_PATH: ${{ github.workspace }}\storage
     steps:
       - name: Checkout repository
@@ -77,8 +87,15 @@ jobs:
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           repo: 'Mas0nShi/WSUEs'
-          file: 'wsues.exe'
-          token: ${{ secrets.GITHUB_TOKEN }}
+          file: 'wsues.zip'
+          token: ${{ secrets.WSUESTOKEN }}
+
+      - name: Unzip WSUEs
+        shell: powershell
+        run: |
+          $zipPath = "${{ github.workspace }}\wsues.zip"
+          $extractPath = "${{ env.WSUES_PATH }}"
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           
       - name: Get current date
         id: date
@@ -94,7 +111,7 @@ jobs:
       - name: Fetch all WSUEs
         shell: cmd
         run: |
-          .\wsues.exe get-all --date "${{ steps.date.outputs.formatted_date }}" -o "%STORAGE_PATH%"
+          ${{ env.WSUES_PATH }}\wsues.exe get-all --date "${{ steps.date.outputs.formatted_date }}" -o "${{ env.STORAGE_PATH }}"
           
       - name: Compress individual files with gzip
         shell: powershell
