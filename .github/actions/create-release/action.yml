@@ -36,7 +36,7 @@ runs:
         body: |
           🔄 Automated WSUEs fetch for ${{ inputs.date }}
           
-          This release contains Windows Security Update Eligibility (WSUEs) data for all supported Windows products.
+          This release contains Windows Security Update (WSUEs) data for all supported Windows products.
           Each file is individually compressed with gzip to reduce download size.
           
           📦 **Usage:**
