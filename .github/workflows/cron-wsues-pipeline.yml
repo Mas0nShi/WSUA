@@ -12,13 +12,12 @@ jobs:
     environment: WSUEs
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check if today is Patch Tuesday
         id: patch-tuesday
         uses: ./.github/actions/check-patch-tuesday
-        
-      - name: Checkout repository
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
-        uses: actions/checkout@v4
         
       - name: Setup WSUEs
         id: setup
