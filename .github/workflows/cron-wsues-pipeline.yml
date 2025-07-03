@@ -1,7 +1,7 @@
 name: Cron WSUEs Pipeline
 on:
   schedule:
-    - cron: '0 15 * * 2' # Every Tuesday at 15:00 UTC
+    - cron: '5 7 * * 2'
 
 permissions:
   contents: write
