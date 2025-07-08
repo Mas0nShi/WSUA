@@ -1,7 +1,9 @@
 name: Cron WSUEs Pipeline
 on:
   schedule:
-    - cron: '5 7 * * 2'
+    # The monthly security update release is published on the second Tuesday of each month, 
+    # typically at 10:00 AM Pacific Time (PST/PDT).
+    - cron: '5 17 * * 2'
 
 permissions:
   contents: write
