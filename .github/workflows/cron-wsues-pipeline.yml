@@ -4,7 +4,7 @@ on:
     # The monthly security update release is published on the second Tuesday of each month, 
     # typically at 10:00 AM Pacific Time (PST/PDT).
     # Wikipedia: 10:00 AM - 11:00 AM Pacific Time (PST/PDT)
-    - cron: '5 18 * * 2'
+    - cron: '5 22 * * 2'
 
 permissions:
   contents: write
