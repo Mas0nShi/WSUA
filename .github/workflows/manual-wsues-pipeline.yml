@@ -31,22 +31,41 @@ on:
 permissions:
   contents: write
 jobs:
-  manual-fetch:
-    name: Manual WSUEs Fetch
+  manual-single:
+    name: Manual Single Fetch
+    if: github.event.inputs.fetch_type == 'single'
     runs-on: windows-2025 # !important
     environment: WSUEs
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+
+      - name: Validate product input
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace("${{ github.event.inputs.product }}")) {
+            Write-Error "When fetch_type is 'single', product must be provided."
+            exit 1
+          }
+
+      - name: Prepare artifact metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $product = "${{ github.event.inputs.product }}"
+          $slug = ($product -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()
+          if ([string]::IsNullOrWhiteSpace($slug)) { $slug = "product" }
+          $filename = "{0}_{1}.json" -f ($slug -replace '-', '_'), "${{ github.event.inputs.date }}"
+          echo "slug=$slug" >> $env:GITHUB_OUTPUT
+          echo "filename=$filename" >> $env:GITHUB_OUTPUT
+
       - name: Setup WSUEs
         id: setup
         uses: ./.github/actions/setup-wsues
         with:
           token: ${{ secrets.WSUESTOKEN }}
           workspace-path: ${{ github.workspace }}
-          
+
       - name: Fetch WSUEs data
         id: fetch
         uses: ./.github/actions/fetch-wsues-data
@@ -54,41 +73,122 @@ jobs:
           wsues-path: ${{ steps.setup.outputs.wsues-path }}
           storage-path: ${{ steps.setup.outputs.storage-path }}
           date: ${{ github.event.inputs.date }}
-          fetch-type: ${{ github.event.inputs.fetch_type }}
           product: ${{ github.event.inputs.product }}
+          output-name: ${{ steps.meta.outputs.filename }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-${{ steps.meta.outputs.slug }}-${{ github.event.inputs.date }}
+          path: ${{ steps.fetch.outputs.output-files }}
+          retention-days: 30
+
+  manual-all-fetch:
+    name: Manual Parallel Fetch
+    if: github.event.inputs.fetch_type == 'all'
+    runs-on: windows-2025 # !important
+    environment: WSUEs
+    strategy:
+      fail-fast: false
+      matrix:
+        product:
+          - 'Windows 10 21H2'
+          - 'Windows 10 22H2'
+          - 'Windows 11 23H2'
+          - 'Windows 11 24H2'
+          - 'Windows Server 2019'
+          - 'Windows Server 2022'
+          - 'Windows Server 2025'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare artifact metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $product = "${{ matrix.product }}"
+          $slug = ($product -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()
+          if ([string]::IsNullOrWhiteSpace($slug)) { $slug = "product" }
+          $filename = "{0}_{1}.json" -f ($slug -replace '-', '_'), "${{ github.event.inputs.date }}"
+          echo "slug=$slug" >> $env:GITHUB_OUTPUT
+          echo "filename=$filename" >> $env:GITHUB_OUTPUT
+
+      - name: Setup WSUEs
+        id: setup
+        uses: ./.github/actions/setup-wsues
+        with:
+          token: ${{ secrets.WSUESTOKEN }}
+          workspace-path: ${{ github.workspace }}
+
+      - name: Fetch WSUEs data
+        id: fetch
+        uses: ./.github/actions/fetch-wsues-data
+        with:
+          wsues-path: ${{ steps.setup.outputs.wsues-path }}
+          storage-path: ${{ steps.setup.outputs.storage-path }}
+          date: ${{ github.event.inputs.date }}
+          product: ${{ matrix.product }}
+          output-name: ${{ steps.meta.outputs.filename }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-json-${{ steps.meta.outputs.slug }}-${{ github.event.inputs.date }}
+          path: ${{ steps.fetch.outputs.output-files }}
+          retention-days: 90
+
+  manual-all-package:
+    name: Manual Aggregate & Release
+    if: github.event.inputs.fetch_type == 'all'
+    needs: manual-all-fetch
+    runs-on: windows-2025 # !important
+    environment: WSUEs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup WSUEs
+        id: setup
+        uses: ./.github/actions/setup-wsues
+        with:
+          token: ${{ secrets.WSUESTOKEN }}
+          workspace-path: ${{ github.workspace }}
+
+      - name: Download product artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wsues-json-*-${{ github.event.inputs.date }}
+          path: ${{ steps.setup.outputs.storage-path }}
+          merge-multiple: true
+
+      - name: List downloaded indexes
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path "${{ steps.setup.outputs.storage-path }}" -Filter "*.json" | ForEach-Object {
+            Write-Host "  - $($_.FullName)"
+          }
 
       - name: Create Quick Index
-        if: github.event.inputs.fetch_type == 'all'
         uses: ./.github/actions/create-quick-index
         with:
           wsues-path: ${{ steps.setup.outputs.wsues-path }}
           storage-path: ${{ steps.setup.outputs.storage-path }}
-          
+
       - name: Compress files
         id: compress
-        if: github.event.inputs.fetch_type == 'all'
         uses: ./.github/actions/compress-files
         with:
           storage-path: ${{ steps.setup.outputs.storage-path }}
-          
-      - name: Upload artifacts (single)
-        if: github.event.inputs.fetch_type == 'single'
-        uses: actions/upload-artifact@v4
-        with:
-          name: wsues-${{ github.event.inputs.product }}-${{ github.event.inputs.date }}
-          path: ${{ steps.fetch.outputs.output-files }}
-          retention-days: 30
-          
-      - name: Upload artifacts (all)
-        if: github.event.inputs.fetch_type == 'all'
+
+      - name: Upload aggregated artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wsues-all-${{ github.event.inputs.date }}
           path: ${{ steps.compress.outputs.compressed-pattern }}
           retention-days: 90
-          
-      - name: Create release (all)
-        if: github.event.inputs.fetch_type == 'all'
+
+      - name: Create release
         uses: ./.github/actions/create-release
         with:
           tag-name: ${{ github.event.inputs.date }}

@@ -10,12 +10,11 @@ inputs:
   date:
     description: 'Date to fetch data for (YYYY-MM format)'
     required: true
-  fetch-type:
-    description: 'Type of fetch: single or all'
-    required: true
-    default: 'all'
   product:
-    description: 'Product name (required for single fetch)'
+    description: 'Product name to fetch'
+    required: true
+  output-name:
+    description: 'Custom output filename (relative to storage path)'
     required: false
 outputs:
   output-files:
@@ -32,54 +31,51 @@ runs:
         $wsuesExe = "${{ inputs.wsues-path }}\wsues.exe"
         $storagePath = "${{ inputs.storage-path }}"
         $date = "${{ inputs.date }}"
-        $fetchType = "${{ inputs.fetch-type }}"
+        $product = "${{ inputs.product }}"
+        $outputNameInput = "${{ inputs.output-name }}"
         
         Write-Host "Fetching WSUEs data..."
         Write-Host "  Date: $date"
-        Write-Host "  Type: $fetchType"
+        Write-Host "  Product: $product"
         
         try {
-          if ($fetchType -eq "single") {
-            $product = "${{ inputs.product }}"
-            if (-not $product) {
-              Write-Error "Product is required for single fetch"
-              exit 1
-            }
-            
-            $outputFile = "$storagePath\$product.json"
-            Write-Host "  Product: $product"
-            Write-Host "  Output: $outputFile"
-            
-            & $wsuesExe get --date $date --product $product -o $outputFile
-            
-            if ($LASTEXITCODE -ne 0) {
-              Write-Error "WSUEs fetch failed with exit code $LASTEXITCODE"
-              exit 1
-            }
-            
-            echo "output-files=$outputFile" >> $env:GITHUB_OUTPUT
-            Write-Host "Single product fetch completed"
-            
+          if (-not $product) {
+            Write-Error "Product name is required"
+            exit 1
+          }
+
+          function Get-SafeName {
+            param([string]$value)
+            $safe = $value -replace '[\\/:*?"<>|]', '_'
+            $safe = $safe -replace '\s+', '_'
+            return $safe
+          }
+
+          if ([string]::IsNullOrWhiteSpace($outputNameInput)) {
+            $safeProduct = Get-SafeName -value $product
+            $outputName = "{0}_{1}.json" -f $safeProduct, $date
           } else {
-            Write-Host "  Output directory: $storagePath"
-            
-            & $wsuesExe get-all --date $date -o $storagePath
-            
-            if ($LASTEXITCODE -ne 0) {
-              Write-Error "WSUEs fetch-all failed with exit code $LASTEXITCODE"
-              exit 1
-            }
-            
-            # List generated files
-            $jsonFiles = Get-ChildItem -Path $storagePath -Filter "*.json"
-            Write-Host "Fetch-all completed. Generated files:"
-            foreach ($file in $jsonFiles) {
-              Write-Host "  - $($file.Name)"
-            }
-            
-            echo "output-files=$storagePath\*.json" >> $env:GITHUB_OUTPUT
+            $outputName = $outputNameInput
+          }
+
+          $outputFile = Join-Path $storagePath $outputName
+          $outputDir = Split-Path -Parent $outputFile
+          if ($outputDir) {
+            New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          }
+
+          Write-Host "  Output: $outputFile"
+          
+          & $wsuesExe get --date $date --product $product -o $outputFile
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "WSUEs fetch failed with exit code $LASTEXITCODE"
+            exit 1
           }
           
+          echo "output-files=$outputFile" >> $env:GITHUB_OUTPUT
+          Write-Host "Product fetch completed"
+
         } catch {
           Write-Error "Fetch operation failed: $($_.Exception.Message)"
           exit 1

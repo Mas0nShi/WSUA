@@ -4,16 +4,18 @@ on:
     # The monthly security update release is published on the second Tuesday of each month, 
     # typically at 10:00 AM Pacific Time (PST/PDT).
     # Wikipedia: 10:00 AM - 11:00 AM Pacific Time (PST/PDT)
+    # I don't know
     - cron: '5 22 * * 2'
 
 permissions:
   contents: write
 jobs:
-  scheduled-fetch:
-    name: Scheduled WSUEs
-    runs-on: windows-2025 # !important
-    environment: WSUEs
-    
+  determine:
+    name: Determine Patch Tuesday
+    runs-on: windows-2025
+    outputs:
+      is_patch_tuesday: ${{ steps.patch-tuesday.outputs.is-patch-tuesday }}
+      current_date: ${{ steps.patch-tuesday.outputs.current-date }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,54 +23,121 @@ jobs:
       - name: Check if today is Patch Tuesday
         id: patch-tuesday
         uses: ./.github/actions/check-patch-tuesday
-        
+
+  fetch-all:
+    name: Parallel Fetch
+    needs: determine
+    if: needs.determine.outputs.is_patch_tuesday == 'True'
+    runs-on: windows-2025 # !important
+    environment: WSUEs
+    strategy:
+      fail-fast: false
+      matrix:
+        product:
+          - 'Windows 10 21H2'
+          - 'Windows 10 22H2'
+          - 'Windows 11 23H2'
+          - 'Windows 11 24H2'
+          - 'Windows Server 2019'
+          - 'Windows Server 2022'
+          - 'Windows Server 2025'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare artifact metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $product = "${{ matrix.product }}"
+          $slug = ($product -replace '[^A-Za-z0-9]+', '-').Trim('-').ToLower()
+          if ([string]::IsNullOrWhiteSpace($slug)) { $slug = "product" }
+          $filename = "{0}_{1}.json" -f ($slug -replace '-', '_'), "${{ needs.determine.outputs.current_date }}"
+          echo "slug=$slug" >> $env:GITHUB_OUTPUT
+          echo "filename=$filename" >> $env:GITHUB_OUTPUT
+
       - name: Setup WSUEs
         id: setup
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: ./.github/actions/setup-wsues
         with:
           token: ${{ secrets.WSUESTOKEN }}
           workspace-path: ${{ github.workspace }}
-          
-      - name: Fetch all WSUEs data
+
+      - name: Fetch WSUEs data
         id: fetch
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: ./.github/actions/fetch-wsues-data
         with:
           wsues-path: ${{ steps.setup.outputs.wsues-path }}
           storage-path: ${{ steps.setup.outputs.storage-path }}
-          date: ${{ steps.patch-tuesday.outputs.current-date }}
-          fetch-type: 'all'
-      
+          date: ${{ needs.determine.outputs.current_date }}
+          product: ${{ matrix.product }}
+          output-name: ${{ steps.meta.outputs.filename }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsues-json-${{ steps.meta.outputs.slug }}-${{ needs.determine.outputs.current_date }}
+          path: ${{ steps.fetch.outputs.output-files }}
+          retention-days: 90
+
+  package:
+    name: Aggregate & Release
+    needs:
+      - determine
+      - fetch-all
+    if: needs.determine.outputs.is_patch_tuesday == 'True'
+    runs-on: windows-2025 # !important
+    environment: WSUEs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup WSUEs
+        id: setup
+        uses: ./.github/actions/setup-wsues
+        with:
+          token: ${{ secrets.WSUESTOKEN }}
+          workspace-path: ${{ github.workspace }}
+
+      - name: Download product artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wsues-json-*-${{ needs.determine.outputs.current_date }}
+          path: ${{ steps.setup.outputs.storage-path }}
+          merge-multiple: true
+
+      - name: List downloaded indexes
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path "${{ steps.setup.outputs.storage-path }}" -Filter "*.json" | ForEach-Object {
+            Write-Host "  - $($_.FullName)"
+          }
+
       - name: Create Quick Index
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: ./.github/actions/create-quick-index
         with:
           wsues-path: ${{ steps.setup.outputs.wsues-path }}
           storage-path: ${{ steps.setup.outputs.storage-path }}
-          
+
       - name: Compress files
         id: compress
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: ./.github/actions/compress-files
         with:
           storage-path: ${{ steps.setup.outputs.storage-path }}
-          
+
       - name: Upload artifacts
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: actions/upload-artifact@v4
         with:
-          name: wsues-scheduled-${{ steps.patch-tuesday.outputs.current-date }}
+          name: wsues-scheduled-${{ needs.determine.outputs.current_date }}
           path: ${{ steps.compress.outputs.compressed-pattern }}
           retention-days: 90
-          
+
       - name: Create release
-        if: steps.patch-tuesday.outputs.is-patch-tuesday == 'True'
         uses: ./.github/actions/create-release
         with:
-          tag-name: ${{ steps.patch-tuesday.outputs.current-date }}
-          release-name: WSUEs ${{ steps.patch-tuesday.outputs.current-date }}
-          date: ${{ steps.patch-tuesday.outputs.current-date }}
+          tag-name: ${{ needs.determine.outputs.current_date }}
+          release-name: WSUEs ${{ needs.determine.outputs.current_date }}
+          date: ${{ needs.determine.outputs.current_date }}
           files-pattern: ${{ steps.compress.outputs.compressed-pattern }}
           token: ${{ secrets.GITHUB_TOKEN }}
         
